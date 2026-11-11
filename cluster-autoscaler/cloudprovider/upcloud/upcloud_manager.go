@@ -40,6 +40,7 @@ type upCloudService interface {
 	ModifyKubernetesNodeGroup(ctx context.Context, r *request.ModifyKubernetesNodeGroupRequest) (*upcloud.KubernetesNodeGroup, error)
 	DeleteKubernetesNodeGroupNode(ctx context.Context, r *request.DeleteKubernetesNodeGroupNodeRequest) error
 	GetKubernetesPlans(ctx context.Context, r *request.GetKubernetesPlansRequest) ([]upcloud.KubernetesPlan, error)
+	GetPlans(ctx context.Context) (*upcloud.Plans, error)
 }
 
 // manager manages node group cache
@@ -50,6 +51,10 @@ type manager struct {
 	nodeGroupSpecs map[string]dynamic.NodeGroupSpec
 
 	maxNodesTotal int
+
+	// zone and plans are used for template nodes (scale from zero)
+	zone  string
+	plans *planCache
 
 	mu sync.Mutex
 }
@@ -81,6 +86,8 @@ func (m *manager) refresh(ctx context.Context) error {
 			maxSize:   m.maxNodesTotal,
 			svc:       m.svc,
 			nodes:     nodes,
+			template:  newNodeTemplate(g, m.zone),
+			plans:     m.plans,
 			mu:        sync.Mutex{},
 		}
 		if spec, ok := m.nodeGroupSpecs[group.name]; ok && spec.Name == group.name {
@@ -106,7 +113,11 @@ func newManager(ctx context.Context, svc upCloudService, cfg upCloudConfig, opts
 	if err != nil {
 		return nil, err
 	}
-	nodeGroupSpecs, err := nodeGroupSpecsFromDiscoveryOptions(&do, nodeGroupMinSize == 0, maxNodesTotal)
+	nodeGroupSpecs, err := nodeGroupSpecsFromDiscoveryOptions(&do, nodeGroupSupportScaleToZero, maxNodesTotal)
+	if err != nil {
+		return nil, err
+	}
+	zone, err := clusterZone(ctx, svc, clusterUUID)
 	if err != nil {
 		return nil, err
 	}
@@ -117,6 +128,8 @@ func newManager(ctx context.Context, svc upCloudService, cfg upCloudConfig, opts
 		svc:            svc,
 		nodeGroups:     make([]*upCloudNodeGroup, 0),
 		nodeGroupSpecs: nodeGroupSpecs,
+		zone:           zone,
+		plans:          newPlanCache(svc),
 		mu:             sync.Mutex{},
 	}, nil
 }
@@ -135,6 +148,9 @@ func nodeGroupSpecsFromDiscoveryOptions(do *cloudprovider.NodeGroupDiscoveryOpti
 			return specs, fmt.Errorf("failed to validate node group spec, max size %d is greater than cluster plan maximum %d`", s.MaxSize, maxNodesTotal)
 		}
 		specs[s.Name] = *s
+	}
+	if !atLeastOneNodeGroupHasNodes(specs) {
+		return specs, fmt.Errorf("failed to validate node group specs, at least one node group must have min size > 0")
 	}
 	return specs, nil
 }
@@ -169,6 +185,16 @@ func clusterMaxNodes(ctx context.Context, svc upCloudService, clusterID uuid.UUI
 		return requestedMaxNodesTotal, fmt.Errorf("MaxNodesTotal %d is greater than maximum allowed %d with selected %s cluster plan", requestedMaxNodesTotal, plan.MaxNodes, cluster.Plan)
 	}
 	return requestedMaxNodesTotal, nil
+}
+
+func clusterZone(ctx context.Context, svc upCloudService, clusterID uuid.UUID) (string, error) {
+	cluster, err := svc.GetKubernetesCluster(ctx, &request.GetKubernetesClusterRequest{
+		UUID: clusterID.String(),
+	})
+	if err != nil {
+		return "", fmt.Errorf("unable to get cluster %s zone: %w", clusterID.String(), err)
+	}
+	return cluster.Zone, nil
 }
 
 func clusterPlanByName(ctx context.Context, svc upCloudService, name string) (upcloud.KubernetesPlan, error) {

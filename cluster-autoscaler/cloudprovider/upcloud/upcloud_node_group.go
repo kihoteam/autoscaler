@@ -43,6 +43,10 @@ type upCloudNodeGroup struct {
 	nodes []cloudprovider.Instance
 	svc   upCloudService
 
+	// template and plans describe a new node of this group (scale from zero)
+	template nodeTemplate
+	plans    *planCache
+
 	mu sync.Mutex
 }
 
@@ -263,7 +267,17 @@ func (u *upCloudNodeGroup) Exist() bool {
 // the node by default, using manifest (most likely only kube-proxy). Implementation optional.
 func (u *upCloudNodeGroup) TemplateNodeInfo() (*framework.NodeInfo, error) {
 	klog.V(logDebug).Infof("UpCloud %s/NodeGroup.TemplateNodeInfo called", u.Id())
-	return nil, cloudprovider.ErrNotImplemented
+	if u.plans == nil {
+		return nil, cloudprovider.ErrNotImplemented
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutGetRequest)
+	defer cancel()
+	r, err := u.template.resources(ctx, u.plans)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build template node for node group %s: %w", u.Id(), err)
+	}
+	node := buildTemplateNode(fmt.Sprintf("upcloud-template-%s", u.name), u.template, r)
+	return framework.NewNodeInfo(node, nil), nil
 }
 
 // AtomicIncreaseSize tries to increase the size of the node group atomically.

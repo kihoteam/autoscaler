@@ -79,8 +79,8 @@ func TestManager(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, upCfg.ClusterID, m.clusterID.String())
-	require.Equal(t, dynamic.NodeGroupSpec{Name: "one", MinSize: 1, MaxSize: 2}, m.nodeGroupSpecs["one"])
-	require.Equal(t, dynamic.NodeGroupSpec{Name: "two", MinSize: 11, MaxSize: 20}, m.nodeGroupSpecs["two"])
+	require.Equal(t, dynamic.NodeGroupSpec{Name: "one", MinSize: 1, MaxSize: 2, SupportScaleToZero: true}, m.nodeGroupSpecs["one"])
+	require.Equal(t, dynamic.NodeGroupSpec{Name: "two", MinSize: 11, MaxSize: 20, SupportScaleToZero: true}, m.nodeGroupSpecs["two"])
 	require.NoError(t, m.refresh(t.Context()))
 	require.Positive(t, len(m.nodeGroups))
 	require.Equal(t, len(svc.Clusters[clusterID.String()].NodeGroups), len(m.nodeGroups))
@@ -92,6 +92,7 @@ func newMockService(clusterID uuid.UUID) *mocks.UpCloudService {
 			clusterID.String(): {
 				UUID: clusterID.String(),
 				Plan: "dev",
+				Zone: "fi-hel2",
 				NodeGroups: []upcloud.KubernetesNodeGroup{
 					{
 						Count: 2,

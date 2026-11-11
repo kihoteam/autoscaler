@@ -33,6 +33,10 @@ type UpCloudService struct {
 	Plans    []upcloud.KubernetesPlan
 	nodes    map[string][]upcloud.KubernetesNode
 	mu       sync.Mutex
+
+	// ServerPlans is returned by GetPlans, GetPlansCalls counts the calls
+	ServerPlans   []upcloud.Plan
+	GetPlansCalls int
 }
 
 // GetKubernetesNodeGroups list node groups
@@ -155,4 +159,12 @@ func (s *UpCloudService) AppendNodeGroup(ctx context.Context, clusterID uuid.UUI
 	cluster.NodeGroups = append(cluster.NodeGroups, group)
 	s.Clusters[clusterID.String()] = *cluster
 	return nil
+}
+
+// GetPlans lists server plans
+func (s *UpCloudService) GetPlans(_ context.Context) (*upcloud.Plans, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.GetPlansCalls++
+	return &upcloud.Plans{Plans: s.ServerPlans}, nil
 }

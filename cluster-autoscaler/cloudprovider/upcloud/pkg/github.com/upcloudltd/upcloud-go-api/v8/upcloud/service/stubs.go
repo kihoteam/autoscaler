@@ -1,6 +1,5 @@
 package service
 
-type Cloud interface{}
 type Account interface{}
 type Firewall interface{}
 type Host interface{}

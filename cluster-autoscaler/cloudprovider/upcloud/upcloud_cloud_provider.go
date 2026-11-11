@@ -78,7 +78,7 @@ func (u *upCloudCloudProvider) Name() string {
 }
 
 // NodeGroups returns all node groups configured for this cloud provider.
-func (u *upCloudCloudProvider) NodeGroups(ctx context.Context) []cloudprovider.NodeGroup {
+func (u *upCloudCloudProvider) NodeGroups() []cloudprovider.NodeGroup {
 	klog.V(logDebug).Info("UpCloud CloudProvider.NodeGroups called")
 	nodeGroups := make([]cloudprovider.NodeGroup, len(u.manager.nodeGroups))
 	for i, ng := range u.manager.nodeGroups {
@@ -90,11 +90,11 @@ func (u *upCloudCloudProvider) NodeGroups(ctx context.Context) []cloudprovider.N
 // NodeGroupForNode returns the node group for the given node, nil if the node
 // should not be processed by cluster autoscaler, or non-nil error if such
 // occurred. Must be implemented.
-func (u *upCloudCloudProvider) NodeGroupForNode(ctx context.Context, node *apiv1.Node) (cloudprovider.NodeGroup, error) {
+func (u *upCloudCloudProvider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.NodeGroup, error) {
 	klog.V(logDebug).Info("UpCloud CloudProvider.NodeGroupForNode called")
 	providerID := node.Spec.ProviderID
 	for _, group := range u.manager.nodeGroups {
-		nodes, err := group.Nodes(ctx)
+		nodes, err := group.Nodes()
 		if err != nil {
 			return nil, err
 		}
@@ -110,53 +110,53 @@ func (u *upCloudCloudProvider) NodeGroupForNode(ctx context.Context, node *apiv1
 
 // HasInstance returns whether the node has corresponding instance in cloud provider,
 // true if the node has an instance, false if it no longer exists
-func (u *upCloudCloudProvider) HasInstance(ctx context.Context, _ *apiv1.Node) (bool, error) {
+func (u *upCloudCloudProvider) HasInstance(*apiv1.Node) (bool, error) {
 	klog.V(logDebug).Info("UpCloud CloudProvider.HasInstance called")
 	return true, cloudprovider.ErrNotImplemented
 }
 
 // GetResourceLimiter returns struct containing limits (max, min) for resources (cores, memory etc.).
-func (u *upCloudCloudProvider) GetResourceLimiter(ctx context.Context) (*cloudprovider.ResourceLimiter, error) {
+func (u *upCloudCloudProvider) GetResourceLimiter() (*cloudprovider.ResourceLimiter, error) {
 	klog.V(logDebug).Info("UpCloud CloudProvider.GetResourceLimiter called")
 	return u.resourceLimiter, nil
 }
 
 // GetAvailableGPUTypes return all available GPU types cloud provider supports.
-func (u *upCloudCloudProvider) GetAvailableGPUTypes(ctx context.Context) map[string]struct{} {
+func (u *upCloudCloudProvider) GetAvailableGPUTypes() map[string]struct{} {
 	klog.V(logDebug).Info("UpCloud CloudProvider.GetAvailableGPUTypes called")
 	return nil
 }
 
 // GPULabel returns the label added to nodes with GPU resource.
-func (u *upCloudCloudProvider) GPULabel(ctx context.Context) string {
+func (u *upCloudCloudProvider) GPULabel() string {
 	klog.V(logDebug).Info("UpCloud CloudProvider.GPULabel called")
 	return ""
 }
 
 // GetNodeGpuConfig returns the label, type and resource name for the GPU added to node. If node doesn't have
 // any GPUs, it returns nil.
-func (u *upCloudCloudProvider) GetNodeGpuConfig(ctx context.Context, node *apiv1.Node) *cloudprovider.GpuConfig {
+func (u *upCloudCloudProvider) GetNodeGpuConfig(node *apiv1.Node) *cloudprovider.GpuConfig {
 	klog.V(logDebug).Info("UpCloud CloudProvider.GetNodeGpuConfig called")
-	return gpu.GetNodeGPUFromCloudProvider(ctx, u, node)
+	return gpu.GetNodeGPUFromCloudProvider(u, node)
 }
 
 // Refresh is called before every main loop and can be used to dynamically update cloud provider state.
 // In particular the list of node groups returned by NodeGroups can change as a result of CloudProvider.Refresh().
-func (u *upCloudCloudProvider) Refresh(ctx context.Context) error {
+func (u *upCloudCloudProvider) Refresh() error {
 	klog.V(logDebug).Info("UpCloud CloudProvider.Refresh called")
-	return u.manager.refresh(ctx)
+	return u.manager.refresh(context.Background())
 }
 
 // Pricing returns pricing model for this cloud provider or error if not available.
 // Implementation optional.
-func (u *upCloudCloudProvider) Pricing(ctx context.Context) (cloudprovider.PricingModel, errors.AutoscalerError) {
+func (u *upCloudCloudProvider) Pricing() (cloudprovider.PricingModel, errors.AutoscalerError) {
 	klog.V(logDebug).Info("UpCloud CloudProvider.Pricing called")
 	return nil, cloudprovider.ErrNotImplemented
 }
 
 // GetAvailableMachineTypes get all machine types that can be requested from the cloud provider.
 // Implementation optional.
-func (u *upCloudCloudProvider) GetAvailableMachineTypes(ctx context.Context) ([]string, error) {
+func (u *upCloudCloudProvider) GetAvailableMachineTypes() ([]string, error) {
 	klog.V(logDebug).Info("UpCloud CloudProvider.GetAvailableMachineTypes called")
 	return nil, cloudprovider.ErrNotImplemented
 }
@@ -164,13 +164,13 @@ func (u *upCloudCloudProvider) GetAvailableMachineTypes(ctx context.Context) ([]
 // NewNodeGroup builds a theoretical node group based on the node definition provided. The node group is not automatically
 // created on the cloud provider side. The node group is not returned by NodeGroups() until it is created.
 // Implementation optional.
-func (u *upCloudCloudProvider) NewNodeGroup(ctx context.Context, _ string, _ map[string]string, _ map[string]string, _ []apiv1.Taint, _ map[string]resource.Quantity) (cloudprovider.NodeGroup, error) {
+func (u *upCloudCloudProvider) NewNodeGroup(_ string, _ map[string]string, _ map[string]string, _ []apiv1.Taint, _ map[string]resource.Quantity) (cloudprovider.NodeGroup, error) {
 	klog.V(logDebug).Info("UpCloud CloudProvider.NewNodeGroup called")
 	return nil, cloudprovider.ErrNotImplemented
 }
 
 // Cleanup cleans up open resources before the cloud provider is destroyed, i.e. go routines etc.
-func (u *upCloudCloudProvider) Cleanup(ctx context.Context) error {
+func (u *upCloudCloudProvider) Cleanup() error {
 	klog.V(logDebug).Info("UpCloud CloudProvider.Cleanup called")
 	return nil
 }

@@ -19,4 +19,4 @@ set -o nounset
 set -o pipefail
 
 version_file=`dirname "$0"`/../../../version/version.go
-grep '^const ClusterAutoscalerVersion = "' $version_file | cut -d'"' -f2
+grep -E '^(const|var) ClusterAutoscalerVersion = "' $version_file | cut -d'"' -f2

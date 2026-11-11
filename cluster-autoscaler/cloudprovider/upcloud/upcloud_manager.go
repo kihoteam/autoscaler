@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 
@@ -56,6 +57,9 @@ type manager struct {
 	zone  string
 	plans *planCache
 
+	// warnedSpecs are node group specs already logged as matching no node group
+	warnedSpecs map[string]bool
+
 	mu sync.Mutex
 }
 
@@ -63,10 +67,11 @@ type manager struct {
 func (m *manager) refresh(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	ctx, cancel := context.WithTimeout(ctx, timeoutGetRequest)
+	// every API call gets its own timeout: nodeGroupNodes sets one per node group
+	listCtx, cancel := context.WithTimeout(ctx, timeoutGetRequest)
 	defer cancel()
 	groups := make([]*upCloudNodeGroup, 0)
-	upcloudNodeGroups, err := m.svc.GetKubernetesNodeGroups(ctx, &request.GetKubernetesNodeGroupsRequest{
+	upcloudNodeGroups, err := m.svc.GetKubernetesNodeGroups(listCtx, &request.GetKubernetesNodeGroupsRequest{
 		ClusterUUID: m.clusterID.String(),
 	})
 	if err != nil {
@@ -99,6 +104,15 @@ func (m *manager) refresh(ctx context.Context) error {
 		groups = append(groups, &group)
 	}
 	m.nodeGroups = groups
+	for _, name := range specsWithoutNodeGroup(m.nodeGroupSpecs, groups) {
+		if m.warnedSpecs == nil {
+			m.warnedSpecs = make(map[string]bool)
+		}
+		if !m.warnedSpecs[name] {
+			klog.Warningf("node group spec %q matches no node group in cluster %s", name, m.clusterID.String())
+			m.warnedSpecs[name] = true
+		}
+	}
 	klog.V(logInfo).Infof("refreshed node groups (%d)", len(m.nodeGroups))
 	return nil
 }
@@ -130,6 +144,7 @@ func newManager(ctx context.Context, svc upCloudService, cfg upCloudConfig, opts
 		nodeGroupSpecs: nodeGroupSpecs,
 		zone:           zone,
 		plans:          newPlanCache(svc),
+		warnedSpecs:    make(map[string]bool),
 		mu:             sync.Mutex{},
 	}, nil
 }
@@ -185,6 +200,22 @@ func clusterMaxNodes(ctx context.Context, svc upCloudService, clusterID uuid.UUI
 		return requestedMaxNodesTotal, fmt.Errorf("MaxNodesTotal %d is greater than maximum allowed %d with selected %s cluster plan", requestedMaxNodesTotal, plan.MaxNodes, cluster.Plan)
 	}
 	return requestedMaxNodesTotal, nil
+}
+
+// specsWithoutNodeGroup returns the names of node group specs that match no node group.
+func specsWithoutNodeGroup(specs map[string]dynamic.NodeGroupSpec, groups []*upCloudNodeGroup) []string {
+	names := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		names[g.name] = true
+	}
+	missing := make([]string, 0)
+	for name := range specs {
+		if !names[name] {
+			missing = append(missing, name)
+		}
+	}
+	sort.Strings(missing)
+	return missing
 }
 
 func clusterZone(ctx context.Context, svc upCloudService, clusterID uuid.UUID) (string, error) {

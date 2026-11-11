@@ -36,6 +36,7 @@ type UpCloudService struct {
 
 	// ServerPlans is returned by GetPlans, GetPlansCalls counts the calls
 	ServerPlans   []upcloud.Plan
+	GetPlansErr   error
 	GetPlansCalls int
 }
 
@@ -166,5 +167,8 @@ func (s *UpCloudService) GetPlans(_ context.Context) (*upcloud.Plans, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.GetPlansCalls++
+	if s.GetPlansErr != nil {
+		return nil, s.GetPlansErr
+	}
 	return &upcloud.Plans{Plans: s.ServerPlans}, nil
 }

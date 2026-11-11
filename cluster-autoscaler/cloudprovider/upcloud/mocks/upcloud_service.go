@@ -29,11 +29,13 @@ import (
 
 // UpCloudService is mock that implements UpCloudService
 type UpCloudService struct {
-	Clusters  map[string]upcloud.KubernetesCluster
-	Plans     []upcloud.KubernetesPlan
-	nodes     map[string][]upcloud.KubernetesNode
-	NodePlans []upcloud.Plan
-	mu        sync.Mutex
+	Clusters map[string]upcloud.KubernetesCluster
+	Plans    []upcloud.KubernetesPlan
+	nodes    map[string][]upcloud.KubernetesNode
+	// DeletedNodes records the node names passed to DeleteKubernetesNodeGroupNode
+	DeletedNodes []string
+	NodePlans    []upcloud.Plan
+	mu           sync.Mutex
 }
 
 // GetKubernetesNodeGroups list node groups
@@ -84,6 +86,11 @@ func (s *UpCloudService) DeleteKubernetesNodeGroupNode(ctx context.Context, r *r
 			n = append(n, nodes[i])
 		}
 	}
+	if len(n) == len(nodes) {
+		// the UKS API deletes nodes by name and returns 404 for an unknown name
+		return &upcloud.Problem{Status: http.StatusNotFound}
+	}
+	s.DeletedNodes = append(s.DeletedNodes, r.NodeName)
 
 	for i := range cluster.NodeGroups {
 		if cluster.NodeGroups[i].Name == r.Name {

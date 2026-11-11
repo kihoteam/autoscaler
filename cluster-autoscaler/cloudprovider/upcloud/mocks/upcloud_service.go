@@ -32,7 +32,9 @@ type UpCloudService struct {
 	Clusters map[string]upcloud.KubernetesCluster
 	Plans    []upcloud.KubernetesPlan
 	nodes    map[string][]upcloud.KubernetesNode
-	mu       sync.Mutex
+	// DeletedNodes records the node names passed to DeleteKubernetesNodeGroupNode
+	DeletedNodes []string
+	mu           sync.Mutex
 
 	// ServerPlans is returned by GetPlans, GetPlansCalls counts the calls
 	ServerPlans   []upcloud.Plan
@@ -89,6 +91,11 @@ func (s *UpCloudService) DeleteKubernetesNodeGroupNode(ctx context.Context, r *r
 			n = append(n, nodes[i])
 		}
 	}
+	if len(n) == len(nodes) {
+		// the UKS API deletes nodes by name and returns 404 for an unknown name
+		return &upcloud.Problem{Status: http.StatusNotFound}
+	}
+	s.DeletedNodes = append(s.DeletedNodes, r.NodeName)
 
 	for i := range cluster.NodeGroups {
 		if cluster.NodeGroups[i].Name == r.Name {

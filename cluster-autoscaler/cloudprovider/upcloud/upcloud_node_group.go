@@ -176,8 +176,17 @@ func (u *upCloudNodeGroup) DeleteNodes(nodes []*apiv1.Node) error {
 	defer u.mu.Unlock()
 	ctx := context.Background()
 
+	namesByUUID, err := nodeNamesByUUID(ctx, u.svc, u.clusterID, u.name)
+	if err != nil {
+		return err
+	}
 	for i := range nodes {
-		if err := u.deleteNode(ctx, nodes[i].GetName()); err != nil {
+		name, ok := uksNodeName(nodes[i], namesByUUID)
+		if !ok {
+			klog.V(logInfo).Infof("UpCloud %s: server %s is not in the node group any more, nothing to delete", u.Id(), nodes[i].Spec.ProviderID)
+			continue
+		}
+		if err := u.deleteNode(ctx, name); err != nil {
 			return err
 		}
 		nodeGroup, err := u.waitNodeGroupState(ctx, upcloud.KubernetesNodeGroupStateRunning, timeoutWaitNodeGroupState)

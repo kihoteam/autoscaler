@@ -63,6 +63,20 @@ func TestDeleteNodes_RegisteredNode(t *testing.T) {
 	require.Equal(t, []string{"group1-node-0"}, deleted())
 }
 
+func TestDeleteNodes_Batch(t *testing.T) {
+	t.Parallel()
+
+	g, deleted := newDeleteTestGroup(t)
+	require.NoError(t, g.DeleteNodes([]*apiv1.Node{
+		node("group1-node-0", "upcloud:////group1-0"),
+		node("upcloud:////group1-1", "upcloud:////group1-1"),
+	}))
+	require.Equal(t, []string{"group1-node-0", "group1-node-1"}, deleted())
+	size, err := g.TargetSize()
+	require.NoError(t, err)
+	require.Equal(t, 0, size)
+}
+
 func TestDeleteNodes_ServerNotInGroup(t *testing.T) {
 	t.Parallel()
 

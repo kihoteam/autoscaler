@@ -31,7 +31,10 @@ import (
 type UpCloudService struct {
 	Clusters map[string]upcloud.KubernetesCluster
 	Plans    []upcloud.KubernetesPlan
+	// nodes keeps the nodes of each node group (key cluster UUID/group name) across calls,
+	// like UKS: node names stay the same when other nodes are deleted
 	nodes    map[string][]upcloud.KubernetesNode
+	nextNode map[string]int
 	// DeletedNodes records the node names passed to DeleteKubernetesNodeGroupNode
 	DeletedNodes []string
 	mu           sync.Mutex
@@ -71,41 +74,35 @@ func (s *UpCloudService) ModifyKubernetesNodeGroup(ctx context.Context, r *reque
 
 // DeleteKubernetesNodeGroupNode deletes the node group
 func (s *UpCloudService) DeleteKubernetesNodeGroupNode(ctx context.Context, r *request.DeleteKubernetesNodeGroupNodeRequest) error {
-	_, err := s.GetKubernetesNodeGroup(ctx, &request.GetKubernetesNodeGroupRequest{ClusterUUID: r.ClusterUUID, Name: r.Name})
-	if err != nil {
-		return err
-	}
 	cluster, err := s.GetKubernetesCluster(ctx, &request.GetKubernetesClusterRequest{UUID: r.ClusterUUID})
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	nodes, ok := s.nodes[r.ClusterUUID]
-	if !ok {
-		return fmt.Errorf("node %s not found", r.NodeName)
-	}
-	n := make([]upcloud.KubernetesNode, 0)
-	for i := range nodes {
-		if nodes[i].Name != r.NodeName {
-			n = append(n, nodes[i])
-		}
-	}
-	if len(n) == len(nodes) {
-		// the UKS API deletes nodes by name and returns 404 for an unknown name
-		return &upcloud.Problem{Status: http.StatusNotFound}
-	}
-	s.DeletedNodes = append(s.DeletedNodes, r.NodeName)
-
 	for i := range cluster.NodeGroups {
-		if cluster.NodeGroups[i].Name == r.Name {
-			cluster.NodeGroups[i].Count--
-			break
+		if cluster.NodeGroups[i].Name != r.Name {
+			continue
 		}
+		key := nodeGroupKey(r.ClusterUUID, r.Name)
+		nodes := s.groupNodes(key, &cluster.NodeGroups[i])
+		n := make([]upcloud.KubernetesNode, 0, len(nodes))
+		for j := range nodes {
+			if nodes[j].Name != r.NodeName {
+				n = append(n, nodes[j])
+			}
+		}
+		if len(n) == len(nodes) {
+			// the UKS API deletes nodes by name and returns 404 for an unknown name
+			return &upcloud.Problem{Status: http.StatusNotFound}
+		}
+		s.DeletedNodes = append(s.DeletedNodes, r.NodeName)
+		s.nodes[key] = n
+		cluster.NodeGroups[i].Count--
+		s.Clusters[r.ClusterUUID] = *cluster
+		return nil
 	}
-	s.Clusters[r.ClusterUUID] = *cluster
-	s.nodes[r.ClusterUUID] = n
-	return nil
+	return fmt.Errorf("node group not found %+v", r)
 }
 
 // GetKubernetesNodeGroup returns node group details
@@ -116,30 +113,43 @@ func (s *UpCloudService) GetKubernetesNodeGroup(ctx context.Context, r *request.
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.nodes == nil {
-		s.nodes = make(map[string][]upcloud.KubernetesNode)
-	}
 	for i := range cluster.NodeGroups {
 		if cluster.NodeGroups[i].Name == r.Name {
-			s.nodes[r.ClusterUUID] = s.initNodeGroupNodes(&cluster.NodeGroups[i])
+			nodes := s.groupNodes(nodeGroupKey(r.ClusterUUID, r.Name), &cluster.NodeGroups[i])
 			return &upcloud.KubernetesNodeGroupDetails{
 				KubernetesNodeGroup: cluster.NodeGroups[i],
-				Nodes:               s.nodes[r.ClusterUUID],
+				Nodes:               append([]upcloud.KubernetesNode(nil), nodes...),
 			}, nil
 		}
 	}
 	return nil, fmt.Errorf("node group details not found %+v", r)
 }
 
-func (s *UpCloudService) initNodeGroupNodes(nodeGroup *upcloud.KubernetesNodeGroup) []upcloud.KubernetesNode {
-	nodes := make([]upcloud.KubernetesNode, nodeGroup.Count)
-	for i := 0; i < nodeGroup.Count; i++ {
-		nodes[i] = upcloud.KubernetesNode{
+func nodeGroupKey(clusterUUID, nodeGroup string) string {
+	return clusterUUID + "/" + nodeGroup
+}
+
+// groupNodes returns the kept nodes of a node group, matched to its count: new nodes get
+// the next unused index, a lower count removes the newest nodes. Callers hold s.mu.
+func (s *UpCloudService) groupNodes(key string, nodeGroup *upcloud.KubernetesNodeGroup) []upcloud.KubernetesNode {
+	if s.nodes == nil {
+		s.nodes = make(map[string][]upcloud.KubernetesNode)
+		s.nextNode = make(map[string]int)
+	}
+	nodes := s.nodes[key]
+	for len(nodes) < nodeGroup.Count {
+		i := s.nextNode[key]
+		s.nextNode[key] = i + 1
+		nodes = append(nodes, upcloud.KubernetesNode{
 			UUID:  fmt.Sprintf("%s-%d", nodeGroup.Name, i),
 			Name:  fmt.Sprintf("%s-node-%d", nodeGroup.Name, i),
 			State: upcloud.KubernetesNodeStateRunning,
-		}
+		})
 	}
+	if len(nodes) > nodeGroup.Count {
+		nodes = nodes[:nodeGroup.Count]
+	}
+	s.nodes[key] = nodes
 	return nodes
 }
 
